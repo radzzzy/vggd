@@ -1,0 +1,206 @@
+import numpy as np
+
+
+def cf_calc(cf, u, x, dy, nu, u0, ni):
+    for i in range(ni):
+        cf[i] = 2 * nu / (u0 ** 2) * ((u[i + 1, 2] - u[i + 1, 1]) / dy)
+    with open('data\cf_nav.plt', 'w') as file:
+        # file.write('VARIABLES = "X", "Cf"\n')
+        for i in range(1, ni):
+            file.write(f'{x[i + 1, 1]} {cf[i]}\n')
+
+
+def boundary(u, v, p, u0, ni, nj):
+    u[0, :] = u0
+    v[0, :] = 0.0
+    p[0, :] = p[1, :]
+
+    u[ni, :] = u[ni - 1, :]
+    v[ni, :] = v[ni - 1, :]
+    p[ni, :] = 0.0
+
+    u[:, 0] = - u[:, 1]
+    v[:, 0] = - v[:, 1]
+    p[:, 0] = p[:, 1]
+
+    u[:, nj] = u[:, nj - 1]
+    v[:, nj] = v[:, nj - 1]
+    p[:, nj] = p[:, nj - 1]
+
+
+def navier(ni, nj, u0, nu, dx, dy, eps, max_k, u, v, p, u_old, v_old, p_old, res_u, res_v, res_p, reses):
+    u[:, :] = u0
+    k = 0
+    res_u_max = 1.0
+    res_v_max = 1.0
+    res_p_max = 1.0
+    boundary(u, v, p, u0, ni, nj)
+    a = 1.0 / (u0**2)
+    dt = cfl * min(0.5 * dx**2 / nu, 0.5 * dy**2 / nu, dx/u0)
+    while k <= max_k and (res_u_max >= eps or res_v_max >= eps or res_p_max >= eps):
+        print(k)
+        u_old[1:ni][1:nj] = u[1:ni][1:nj]
+        v_old[1:ni][1:nj] = v[1:ni][1:nj]
+        p_old[1:ni][1:nj] = p[1:ni][1:nj]
+
+        for i in range(1, ni):
+            for j in range(1, nj):
+                u_per1 = (u[i][j] + u[i + 1][j])/2
+                if u_per1 >= 0.0:
+                    u_r = u[i][j]
+                    v_r = v[i][j]
+                    p_r = p[i + 1][j]
+                else:
+                    u_r = u[i + 1][j]
+                    v_r = v[i + 1][j]
+                    p_r = p[i][j]
+
+                u_per2 = (u[i - 1][j] + u[i][j])/2
+                if u_per2 >= 0.0:
+                    u_l = u[i - 1][j]
+                    v_l = v[i - 1][j]
+                    p_l = p[i][j]
+                else:
+                    u_l = u[i][j]
+                    v_l = v[i][j]
+                    p_l = p[i - 1][j]
+
+                v_per1 = (v[i][j] + v[i][j + 1])/2
+                if v_per1 >= 0.0:
+                    u_u = u[i][j]
+                    v_u = v[i][j]
+                    p_u = p[i][j + 1]
+                else:
+                    u_u = u[i][j + 1]
+                    v_u = v[i][j + 1]
+                    p_u = p[i][j]
+
+                v_per2 = (v[i][j - 1] + v[i][j])/2
+                if v_per2 >= 0.0:
+                    u_d = u[i][j - 1]
+                    v_d = v[i][j - 1]
+                    p_d = p[i][j]
+                else:
+                    u_d = u[i][j]
+                    v_d = v[i][j]
+                    p_d = p[i][j - 1]
+
+                conv1 = (u_r - u_l) / dx
+                conv2 = (v_u - v_d) / dy
+                p[i][j] = p[i][j] + dt / a * (- conv1 - conv2)
+
+                conv1 = (u_per1 * u_r - u_per2 * u_l) / dx
+                conv2 = (v_per1 * u_u - v_per2 * u_d) / dy
+                p1 = (p_r - p_l) / dx
+                diff1 = nu / (dx**2) * (u[i + 1][j] - 2 * u[i][j] + u[i - 1][j])
+                diff2 = nu / (dy**2) * (u[i][j + 1] - 2 * u[i][j] + u[i][j - 1])
+                u[i][j] = u[i][j] + dt * (- conv1 - conv2 - p1 + diff1 + diff2)
+
+                conv1 = (u_per1 * v_r - u_per2 * v_l) / dx
+                conv2 = (v_per1 * v_u - v_per2 * v_d) / dy
+                p1 = (p_u - p_d) / dx
+                diff1 = nu / (dx**2) * (v[i + 1][j] - 2 * v[i][j] + v[i - 1][j])
+                diff2 = nu / (dy**2) * (v[i][j + 1] - 2 * v[i][j] + v[i][j - 1])
+                v[i][j] = v[i][j] + dt * (- conv1 - conv2 - p1 + diff1 + diff2)
+                res_p[i][j] = abs(p[i][j] - p_old[i][j]) * a / dt
+                res_u[i][j] = abs(u[i][j] - u_old[i][j]) / dt
+                res_v[i][j] = abs(v[i][j] - v_old[i][j]) / dt
+
+        res_u_max = 0
+        res_v_max = 0
+        res_p_max = 0
+
+        for i in range(2, ni):
+            for j in range(2, nj):
+                if res_u[i][j] >= res_u_max:
+                    res_u_max = res_u[i][j]
+                if res_v[i][j] >= res_v_max:
+                    res_v_max = res_v[i][j]
+                if res_p[i][j] >= res_p_max:
+                    res_p_max = res_p[i][j]
+        boundary(u, v, p, u0, ni, nj)
+        out = np.array([k, res_u_max, res_v_max, res_p_max])
+        reses[k, :] = out
+        k += 1
+
+with open('input_nav.txt', 'r') as file:
+    L = float(file.readline())
+    H = float(file.readline())
+    u0 = float(file.readline())
+    nu = float(file.readline())
+    ni = int(file.readline())
+    nj = int(file.readline())
+    eps = float(file.readline())
+    max_k = int(file.readline())
+    cfl = float(file.readline())
+
+x_node = np.zeros((ni + 1, nj + 1), dtype='float32')
+y_node = np.zeros((ni + 1, nj + 1), dtype='float32')
+x_cell = np.zeros((ni + 1, nj + 1), dtype='float32')
+y_cell = np.zeros((ni + 1, nj + 1), dtype='float32')
+p = np.zeros((ni + 1, nj + 1), dtype='float32')
+u = np.zeros((ni + 1, nj + 1), dtype='float32')
+v = np.zeros((ni + 1, nj + 1), dtype='float32')
+u_old = np.zeros((ni + 1, nj + 1), dtype='float32')
+v_old = np.zeros((ni + 1, nj + 1), dtype='float32')
+p_old = np.zeros((ni + 1, nj + 1), dtype='float32')
+res_u = np.zeros((ni + 1, nj + 1), dtype='float32')
+res_v = np.zeros((ni + 1, nj + 1), dtype='float32')
+res_p = np.zeros((ni + 1, nj + 1), dtype='float32')
+cf = np.zeros(nj, dtype='float32')
+reses = np.zeros((max_k, 4), dtype='float32')
+
+
+dx = L / (ni - 1)
+dy = H / (nj - 1)
+
+for i in range(1, ni + 1):
+    for j in range(1, nj + 1):
+        x_node[i, j] = (i - 1) * dx
+        y_node[i, j] = (j - 1) * dy
+
+for j in range(1, nj + 1):
+    x_cell[0, j] = - dx / 2
+    y_cell[0, j] = y_node[1, j] + dy / 2
+
+for i in range(1, ni + 1):
+    x_cell[i, 0] = x_node[1, i] + dx / 2
+    y_cell[i, 0] = - dy / 2
+
+for i in range(1, ni + 1):
+    for j in range(1, nj + 1):
+        x_cell[i, j] = x_node[i, j] + dx / 2
+        y_cell[i, j] = y_node[i, j] + dy / 2
+
+
+navier(ni, nj, u0, nu, dx, dy, eps, max_k, u, v, p, u_old, v_old, p_old, res_u, res_v, res_p, reses)
+cf_calc(cf, u, x_node, dy, nu, u0, ni)
+
+with open(r'data\res_nav.plt', 'w') as file:
+    for i in range(1, max_k):
+        file.write((' '.join(map(str, reses[i, :]))) + '\n')
+
+with open('data_nav.plt', 'w') as file:
+    file.write('VARIABLES="X", "Y", "U", "V", "P"\n')
+    file.write(f'ZONE I={ni}, J={nj}, DATAPACKING=BLOCK, VARLOCATION=([3-20]=CELLCENTERED)\n')
+    for j in range(1, nj + 1):
+        file.write((' '.join(map(str, x_node[1:ni + 1, j]))) + '\n')
+    for j in range(1, nj + 1):
+        file.write((' '.join(map(str, y_node[1:ni + 1, j]))) + '\n')
+    for j in range(1, nj):
+        file.write((' '.join(map(str, u[1:ni, j]))) + '\n')
+    for j in range(1, nj):
+        file.write((' '.join(map(str, v[1:ni, j]))) + '\n')
+    for j in range(1, nj):
+        file.write((' '.join(map(str, p[1:ni, j]))) + '\n')
+
+dots = [0.015, 0.06]
+for dot in dots:
+    file_name = rf'data\nav_graf{"_".join(str(dot).split("."))}.txt'
+    with open(file_name, 'w') as file:
+        for i in range(len(x_node[:][1])):
+            if abs(x_node[i][1] - dot) <= dx / 2:
+                for j in range(len(u[i][:])):
+                    file.write(f'{y_node[i][j]} {u[i][j]}\n')
+
+print('Done!')
