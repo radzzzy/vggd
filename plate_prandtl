@@ -1,0 +1,161 @@
+import numpy as np
+
+
+def cf_calc(cf, u, x, dy, nu, u0, ni):
+    for i in range(ni):
+        cf[i] = 2 * nu / (u0 ** 2) * ((u[i, 1] - u[i, 0]) / dy)
+    with open('data\cf_pr.plt', 'w') as file:
+        # file.write('VARIABLES = "X", "Cf"')
+        for i in range(1, ni):
+            file.write(f'{x[i, 0]} {cf[i]}\n')
+
+
+def progon(A, B, C, D, alpha, beta,  x, n):
+    alpha[0] = -C[0] / B[0]
+    beta[0] = D[0] / B[0]
+
+    for i in range(1, n):
+        alpha[i] = - C[i] / (B[i] + A[i] * alpha[i - 1])
+        beta[i] = (D[i] - A[i] * beta[i - 1]) / (B[i] + A[i] * alpha[i - 1])
+
+    x[n - 1] = beta[n - 1]
+    for i in range(n - 2, 0, -1):
+        x[i - 1] = x[i] * alpha[i - 1] + beta[i - 1]
+
+    return x
+
+
+def prandtl(ni, nj, u0, nu, dx, dy, eps, max_k, u, v, p, A, B, C, D, alpha, beta, u_old, v_old, reses):
+    v[:, 0] = 0.0
+    u[0, :] = u0
+    A[0] = 0.0
+    B[0] = 1.0
+    C[0] = 0.0
+    D[0] = 0.0
+    A[nj - 1] = 0.0
+    B[nj - 1] = 1.0
+    C[nj - 1] = 0.0
+    D[nj - 1] = u0
+    for i in range(1, ni):
+        u[i, :] = u[i - 1, :]
+        k = 0
+        res_u = 1.0
+        res_v = 1.0
+
+        while k <= max_k and res_u >= eps and res_v >= eps:
+            u_old[i, :] = u[i - 1, :]
+
+            if k == 0:
+                v_old[i, :] = 1.0
+            else:
+                v_old[i, :] = v[i, :]
+
+            for j in range(1, nj):
+                v[i, j] = v[i, j - 1] - (dy / 2) * ((u[i, j] - u[i - 1, j]) / dx
+                                                    + (u[i, j - 1] - u[i - 1, j - 1]) / dx)
+
+            for j in range(1, nj - 1):
+                A[j] = -v[i, j - 1] / (2 * dy) - nu / (dy**2)
+                B[j] = u[i, j] / dx + 2 * nu / (dy**2)
+                C[j] = v[i, j + 1] / (2 * dy) - nu / (dy**2)
+                D[j] = u[i - 1, j] * u[i - 1, j] / dx
+
+            u[i, :] = progon(A, B, C, D, alpha, beta, u[i, :], nj)
+
+            if i == 1000:
+                s1_max = 0
+                s2_max = 0
+                s3_max = 0
+                s4_max = 0
+                for j in range(2, nj):
+                    s1 = abs(u[i][j] - u_old[i][j])
+                    if s1 >= s1_max:
+                        s1_max = s1
+                for j in range(2, nj):
+                    s2 = abs(v[i, j] - v_old[i, j])
+                    if s2 >= s2_max:
+                        s2_max = s2
+                for j in range(2, nj):
+                    s3 = abs(u[i, j])
+                    if s3 >= s3_max:
+                        s3_max = s3
+                for j in range(2, nj):
+                    s4 = abs(v[i, j])
+                    if s4 >= s4_max:
+                        s4_max = s4
+
+                if abs(s4_max) <= eps:
+                    res_v = np.inf
+                else:
+                    res_v = s2_max / s4_max
+                res_u = s1_max / s3_max
+                out = np.array([k, res_u, res_v])
+                reses[k, :] = out
+            k += 1
+
+
+with open('input_prand.txt', 'r') as file:
+    L = float(file.readline())
+    H = float(file.readline())
+    u0 = float(file.readline())
+    nu = float(file.readline())
+    ni = int(file.readline())
+    nj = int(file.readline())
+    eps = float(file.readline())
+    max_k = int(file.readline())
+
+x_node = np.zeros((ni, nj), dtype='float32')
+y_node = np.zeros((ni, nj), dtype='float32')
+u = np.zeros((ni, nj), dtype='float32')
+v = np.zeros((ni, nj), dtype='float32')
+u_old = np.zeros((ni, nj), dtype='float32')
+v_old = np.zeros((ni, nj), dtype='float32')
+p = np.zeros((ni, nj), dtype='float32')
+A = np.zeros(nj, dtype='float32')
+B = np.zeros(nj, dtype='float32')
+C = np.zeros(nj, dtype='float32')
+D = np.zeros(nj, dtype='float32')
+alpha = np.zeros(nj, dtype='float32')
+beta = np.zeros(nj, dtype='float32')
+cf = np.zeros(nj, dtype='float32')
+reses = np.zeros((max_k, 3))
+
+dx = L / (ni - 1)
+dy = H / (nj - 1)
+
+for i in range(ni):
+    for j in range(nj):
+        x_node[i, j] = i * dx
+        y_node[i, j] = j * dy
+
+prandtl(ni, nj, u0, nu, dx, dy, eps, max_k, u, v, p, A, B, C, D, alpha, beta, u_old, v_old, reses)
+cf_calc(cf, u, x_node, dy, nu, u0, ni)
+
+with open(r'data\res_pr.plt', 'w') as file:
+    for i in range(1, max_k):
+        file.write((' '.join(map(str, reses[i, :]))) + '\n')
+
+with open('data_pr.plt', 'w') as file:
+    file.write('VARIABLES="X", "Y", "U", "V", "P"\n')
+    file.write(f'ZONE I={ni}, J={nj}, DATAPACKING=BLOCK\n')
+    for j in range(nj):
+        file.write((' '.join(map(str, x_node[:, j]))) + '\n')
+    for j in range(nj):
+        file.write((' '.join(map(str, y_node[:, j]))) + '\n')
+    for j in range(nj):
+        file.write((' '.join(map(str, u[:, j]))) + '\n')
+    for j in range(nj):
+        file.write((' '.join(map(str, v[:, j]))) + '\n')
+    for j in range(nj):
+        file.write((' '.join(map(str, p[:, j]))) + '\n')
+
+dots = [0.015, 0.06, 0.18]
+for dot in dots:
+    file_name = f'data\pra_graf{"_".join(str(dot).split("."))}.txt'
+    with open(file_name, 'w') as file:
+        for i in range(len(x_node[:][0])):
+            if abs(x_node[i][0] - dot) <= dx / 2:
+                for j in range(len(u[i][:])):
+                    file.write(f'{y_node[i][j]} {u[i][j]}\n')
+
+print('Done!')
